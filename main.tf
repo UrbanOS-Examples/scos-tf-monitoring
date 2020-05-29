@@ -85,6 +85,73 @@ resource "aws_sns_topic" "alert_handler_sns_topic" {
   name = "lambda_alert_topic"
 }
 
+resource "aws_sns_topic_policy" "alert_handler_sns_topic_policy" {
+  arn = "${aws_sns_topic.alert_handler_sns_topic.arn}"
+
+  policy = "${data.aws_iam_policy_document.alert_handler.json}"
+}
+
+data "aws_caller_identity" "current" {}
+
+data "aws_iam_policy_document" "alert_handler" {
+  policy_id = "__default_policy_ID"
+
+  statement {
+    actions = [
+      "SNS:Subscribe",
+      "SNS:SetTopicAttributes",
+      "SNS:RemovePermission",
+      "SNS:Receive",
+      "SNS:Publish",
+      "SNS:ListSubscriptionsByTopic",
+      "SNS:GetTopicAttributes",
+      "SNS:DeleteTopic",
+      "SNS:AddPermission",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceOwner"
+
+      values = [
+        "${data.aws_caller_identity.current.account_id}",
+      ]
+    }
+
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    resources = [
+      "${aws_sns_topic.alert_handler_sns_topic.arn}",
+    ]
+
+    sid = "__default_statement_ID"
+  }
+
+  statement {
+    actions = [
+      "SNS:Publish"
+    ]
+
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+
+    resources = [
+      "${aws_sns_topic.alert_handler_sns_topic.arn}",
+    ]
+
+    sid = "allow_publish_from_cloudwatch_events"
+  }
+}
+
 resource "aws_sns_topic_subscription" "user_updates_sqs_target" {
   topic_arn = "${aws_sns_topic.alert_handler_sns_topic.arn}"
   protocol  = "lambda"
