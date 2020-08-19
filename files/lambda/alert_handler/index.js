@@ -7,9 +7,9 @@ var ACCOUNT = process.env.ACCOUNT;
 
 exports.handler = function(message, context) {
     console.log(toString(message));
-    
+
     var event = toCommonEvent(message);
-    
+
     console.log(event.source, event.title, event.description);
 
     var postData = toSlackPost(event);
@@ -27,10 +27,10 @@ exports.handler = function(message, context) {
         context.done(null, postData);
       });
     });
-    
+
     req.on('error', function(e) {
       console.log('problem with request: ' + e.message);
-    });    
+    });
 
     req.write(util.format("%j", postData));
     req.end();
@@ -61,9 +61,9 @@ var WARNING_MESSAGES = [
     "Ok to Warning",
     "Pending Initialization",
     "Removed instance ",
-    "Rollback of environment"        
+    "Rollback of environment"
     ];
-    
+
 var LOW_SEVERITY = "good";
 var MEDIUM_SEVERITY = "warning";
 var HIGH_SEVERITY = "danger";
@@ -74,19 +74,19 @@ var LEVELS = {
     [HIGH_SEVERITY]: "ERROR"
 };
 
-function determineSnsSeverity(message) {
+function determineCWAlarmSeverity(message) {
     for(var dangerMessagesItem in DANGER_MESSAGES) {
         if (message.indexOf(DANGER_MESSAGES[dangerMessagesItem]) != -1) {
             return HIGH_SEVERITY;
         }
     }
-    
+
     for(var warningMessagesItem in WARNING_MESSAGES) {
         if (message.indexOf(WARNING_MESSAGES[warningMessagesItem]) != -1) {
             return MEDIUM_SEVERITY;
         }
-    }        
-    
+    }
+
     return LOW_SEVERITY;
 }
 
@@ -109,25 +109,40 @@ function findingLink(region, id) {
 
 function toCommonEvent(event) {
     if (event.Records[0].Sns.Subject != null) {
-        var message = event.Records[0].Sns.Message;
+        return cloudWatchAlarmToCommonEvent(event);
+    }
+    if (event.Records[0].Sns.Subject == null) {
+        return cloudWatchEventToCommonEvent(event);
+    }
+    return {
+        title: 'Unidentified Event Type Received',
+        description: toString(event),
+        severity: LOW_SEVERITY,
+        source: "UNKNOWN"
+    };
+}
+
+function cloudWatchAlarmToCommonEvent(event) {
+    var message = event.Records[0].Sns.Message;
+    return {
+        title: event.Records[0].Sns.Subject,
+        description: message,
+        severity: determineCWAlarmSeverity(message),
+        source: "CloudWatch Alarm"
+    };
+}
+
+function cloudWatchEventToCommonEvent(event) {
+    var cloudWatchEvent = JSON.parse(event.Records[0].Sns.Message);
+    if (cloudWatchEvent["detail-type"] == "GuardDuty Finding") {
         return {
-            title: event.Records[0].Sns.Subject,
-            description: message,
-            severity: determineSnsSeverity(message),
-            source: "SNS"
+            title: cloudWatchEvent.detail.title,
+            description: cloudWatchEvent.detail.description + "\nSee this GuardDuty link for more details: " + findingLink(cloudWatchEvent.detail.region, cloudWatchEvent.detail.id),
+            severity: determineGuardDutySeverity(cloudWatchEvent.detail.severity),
+            source: "GuardDuty"
         };
     }
-
-    if (event.Records[0].Sns.Subject == null) {
-        var cloudWatchEvent = JSON.parse(event.Records[0].Sns.Message);
-        if (cloudWatchEvent["detail-type"] == "GuardDuty Finding") {
-            return {
-                title: cloudWatchEvent.detail.title,
-                description: cloudWatchEvent.detail.description + "\nSee this GuardDuty link for more details: " + findingLink(cloudWatchEvent.detail.region, cloudWatchEvent.detail.id),
-                severity: determineGuardDutySeverity(cloudWatchEvent.detail.severity),
-                source: "GuardDuty"
-            };
-        }
+    if (cloudWatchEvent["detail-type"] == "AWS API Call via CloudTrail") {
         return {
             title: cloudWatchEvent["detail-type"],
             description: "User performed API action of " + cloudWatchEvent.detail.eventName,
@@ -135,12 +150,11 @@ function toCommonEvent(event) {
             source: "GuardDuty API"
         };
     }
-    
     return {
-        title: 'Unidentified Event Type Received',
-        description: toString(event),
+        title: cloudWatchEvent["detail-type"],
+        description: toString(cloudWatchEvent),
         severity: LOW_SEVERITY,
-        source: "UNKNOWN"
+        source: cloudWatchEvent["source"].toUpperCase()
     };
 }
 
@@ -158,10 +172,10 @@ function toSlackPost(event) {
 
     post.attachments = [
         {
-            "color": event.severity, 
+            "color": event.severity,
             "text": event.description
         }
     ];
-    
+
     return post;
 }
