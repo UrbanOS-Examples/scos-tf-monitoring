@@ -28,6 +28,7 @@ resource "aws_iam_policy" "alert_handler_iam_policy" {
   } ]
 }
 EOF
+
 }
 
 resource "aws_iam_role" "alert_handler_iam_role" {
@@ -47,27 +48,28 @@ resource "aws_iam_role" "alert_handler_iam_role" {
   ]
 }
 EOF
+
 }
 
 resource "aws_iam_role_policy_attachment" "alert_handler_iam_rolepolicy_attachment" {
-  role       = "${aws_iam_role.alert_handler_iam_role.name}"
-  policy_arn = "${aws_iam_policy.alert_handler_iam_policy.arn}"
+  role       = aws_iam_role.alert_handler_iam_role.name
+  policy_arn = aws_iam_policy.alert_handler_iam_policy.arn
 }
 
 resource "aws_lambda_function" "alert_handler_lambda" {
   filename         = "lambda_alert_handler.zip"
-  source_code_hash = "${data.archive_file.alert_handler_zip.output_base64sha256}"
+  source_code_hash = data.archive_file.alert_handler_zip.output_base64sha256
   function_name    = "${terraform.workspace}_alert_handler"
-  role             = "${aws_iam_role.alert_handler_iam_role.arn}"
+  role             = aws_iam_role.alert_handler_iam_role.arn
   description      = "An Amazon SNS trigger that sends CloudWatch alarm notifications to Slack."
   handler          = "index.handler"
   runtime          = "nodejs12.x"
   timeout          = 30
 
   environment {
-    variables {
-      SLACK_PATH         = "${var.alarms_slack_path}"
-      SLACK_CHANNEL_NAME = "${var.alarms_slack_channel_name}"
+    variables = {
+      SLACK_PATH         = var.alarms_slack_path
+      SLACK_CHANNEL_NAME = var.alarms_slack_channel_name
       ACCOUNT            = "scos-${terraform.workspace}"
     }
   }
@@ -76,9 +78,9 @@ resource "aws_lambda_function" "alert_handler_lambda" {
 resource "aws_lambda_permission" "with_sns" {
   statement_id  = "AllowExecutionFromSNS"
   action        = "lambda:InvokeFunction"
-  function_name = "${aws_lambda_function.alert_handler_lambda.function_name}"
+  function_name = aws_lambda_function.alert_handler_lambda.function_name
   principal     = "sns.amazonaws.com"
-  source_arn    = "${aws_sns_topic.alert_handler_sns_topic.arn}"
+  source_arn    = aws_sns_topic.alert_handler_sns_topic.arn
 }
 
 resource "aws_sns_topic" "alert_handler_sns_topic" {
@@ -86,12 +88,13 @@ resource "aws_sns_topic" "alert_handler_sns_topic" {
 }
 
 resource "aws_sns_topic_policy" "alert_handler_sns_topic_policy" {
-  arn = "${aws_sns_topic.alert_handler_sns_topic.arn}"
+  arn = aws_sns_topic.alert_handler_sns_topic.arn
 
-  policy = "${data.aws_iam_policy_document.alert_handler.json}"
+  policy = data.aws_iam_policy_document.alert_handler.json
 }
 
-data "aws_caller_identity" "current" {}
+data "aws_caller_identity" "current" {
+}
 
 data "aws_iam_policy_document" "alert_handler" {
   policy_id = "__default_policy_ID"
@@ -114,7 +117,7 @@ data "aws_iam_policy_document" "alert_handler" {
       variable = "AWS:SourceOwner"
 
       values = [
-        "${data.aws_caller_identity.current.account_id}",
+        data.aws_caller_identity.current.account_id,
       ]
     }
 
@@ -126,7 +129,7 @@ data "aws_iam_policy_document" "alert_handler" {
     }
 
     resources = [
-      "${aws_sns_topic.alert_handler_sns_topic.arn}",
+      aws_sns_topic.alert_handler_sns_topic.arn,
     ]
 
     sid = "__default_statement_ID"
@@ -134,7 +137,7 @@ data "aws_iam_policy_document" "alert_handler" {
 
   statement {
     actions = [
-      "SNS:Publish"
+      "SNS:Publish",
     ]
 
     effect = "Allow"
@@ -145,7 +148,7 @@ data "aws_iam_policy_document" "alert_handler" {
     }
 
     resources = [
-      "${aws_sns_topic.alert_handler_sns_topic.arn}",
+      aws_sns_topic.alert_handler_sns_topic.arn,
     ]
 
     sid = "allow_publish_from_cloudwatch_events"
@@ -153,9 +156,9 @@ data "aws_iam_policy_document" "alert_handler" {
 }
 
 resource "aws_sns_topic_subscription" "user_updates_sqs_target" {
-  topic_arn = "${aws_sns_topic.alert_handler_sns_topic.arn}"
+  topic_arn = aws_sns_topic.alert_handler_sns_topic.arn
   protocol  = "lambda"
-  endpoint  = "${aws_lambda_function.alert_handler_lambda.arn}"
+  endpoint  = aws_lambda_function.alert_handler_lambda.arn
 }
 
 //---------EVENTS---------//
@@ -169,5 +172,6 @@ variable "alarms_slack_channel_name" {
 }
 
 output "alert_handler_sns_topic_arn" {
-  value = "${aws_sns_topic.alert_handler_sns_topic.arn}"
+  value = aws_sns_topic.alert_handler_sns_topic.arn
 }
+
